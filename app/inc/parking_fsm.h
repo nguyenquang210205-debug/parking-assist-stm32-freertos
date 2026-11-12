@@ -44,6 +44,8 @@ typedef struct {
     bool       ir;               /* hồng ngoại ở cửa đang thấy vật */
     uint32_t   ir_off_since_ms;  /* thời điểm hồng ngoại hết thấy vật */
     bool       ir_seen;          /* LEAVING: hồng ngoại đã thấy xe đi qua cửa */
+    bool       hold_active;      /* STOP: đã có mẫu đo liên tục nằm trong vùng dừng */
+    uint32_t   hold_since_ms;    /* bắt đầu lần giữ dừng liên tục hiện tại */
     bool       away;             /* PARKED: xe đang ở xa vạch dừng */
     uint32_t   away_since_ms;
     uint16_t   dist_mm;
@@ -55,6 +57,9 @@ typedef struct {
 void pk_settings_default(pk_settings_t *s);
 /** Kiểm tra bộ tham số hợp lệ (stop + trễ < slow, độ sáng 0..15, ...). */
 bool pk_settings_valid(const pk_settings_t *s);
+
+/** Đổi giây sang mili giây 16 bit; từ chối đầu vào gây tràn (>= 66 giây). */
+bool pk_seconds_to_ms(uint16_t seconds, uint16_t *out_ms);
 
 void pk_fsm_init(pk_fsm_t *f, uint32_t now_ms);
 

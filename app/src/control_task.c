@@ -36,21 +36,22 @@ static void apply_setting(pk_settings_t *s, uint8_t id, uint16_t value)
                                                      "day", "night" };
     pk_settings_t t = *s;
     uint32_t v = value;
+    bool valid_conversion = true;
     switch (id) {
     case SET_STOP_CM:   t.stop_mm          = (uint16_t)(v * 10U);   break;
     case SET_SLOW_CM:   t.slow_mm          = (uint16_t)(v * 10U);   break;
-    case SET_HOLD_S:    t.park_hold_ms     = (uint16_t)(v * 1000U); break;
-    case SET_EMPTY_S:   t.empty_timeout_ms = (uint16_t)(v * 1000U); break;
+    case SET_HOLD_S:    valid_conversion = pk_seconds_to_ms(value, &t.park_hold_ms);     break;
+    case SET_EMPTY_S:   valid_conversion = pk_seconds_to_ms(value, &t.empty_timeout_ms); break;
     /* Độ sáng: giá trị > 255 ghim ở 255 để pk_settings_valid() từ chối (chỉ nhận 0..15) */
     case SET_DAY:       t.intensity_day    = (uint8_t)((v > 255U) ? 255U : v); break;
     case SET_NIGHT:     t.intensity_night  = (uint8_t)((v > 255U) ? 255U : v); break;
     default: return;
     }
-    if (pk_settings_valid(&t)) {
+    if (valid_conversion && pk_settings_valid(&t)) {
         *s = t;
         log_printf("[CTL] Dat %s = %u", names[id], (unsigned)value);
     } else {
-        log_printf("[CTL] Tu choi %s = %u (can stop+2<slow, stop>=3 cm, do sang 0..15)", names[id], (unsigned)value);
+        log_printf("[CTL] Tu choi %s=%u (gia tri/nguong khong hop le)", names[id], (unsigned)value);
     }
 }
 

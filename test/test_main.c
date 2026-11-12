@@ -302,6 +302,64 @@ static void test_repark(void)
     CHECK(f.state == PK_PARKED && f.park_count == 2);
 }
 
+/* Mất tín hiệu hay nhích ngoài vạch STOP không được tính vào 4 s đỗ liên tục. */
+static void test_stop_requires_continuous_hold(void)
+{
+    pk_fsm_t f; pk_settings_t s;
+    pk_settings_default(&s);
+    pk_fsm_init(&f, 0);
+    pk_fsm_on_ir(&f, true, 0, &s);
+    pk_fsm_on_distance(&f, 30, 100, &s);
+    CHECK(f.state == PK_STOP);
+    pk_fsm_on_distance(&f, 39, 3000, &s); /* vẫn ở STOP do hysteresis, nhưng đã rời vạch */
+    CHECK(f.state == PK_STOP);
+    pk_fsm_on_distance(&f, 30, 3100, &s);
+    pk_fsm_on_distance(&f, 30, 4100, &s);
+    CHECK(f.state == PK_STOP && f.park_count == 0);
+    pk_fsm_on_distance(&f, DIST_NONE, 6500, &s); /* mất echo cũng làm gián đoạn giữ */
+    pk_fsm_on_distance(&f, 30, 6600, &s);
+    pk_fsm_on_distance(&f, 30, 10599, &s);
+    CHECK(f.state == PK_STOP);
+    pk_fsm_on_distance(&f, 30, 10600, &s);
+    CHECK(f.state == PK_PARKED && f.park_count == 1);
+    CHECK(strcmp(pk_state_name((pk_state_t)-1), "?") == 0);
+}
+
+/* Chặn tràn khi người dùng nhập số giây lớn ở terminal. */
+static void test_settings_seconds_conversion(void)
+{
+    uint16_t ms = 999;
+    CHECK(pk_seconds_to_ms(4, &ms) && ms == 4000);
+    CHECK(pk_seconds_to_ms(65, &ms) && ms == 65000);
+    CHECK(!pk_seconds_to_ms(66, &ms) && ms == 65000);
+    CHECK(!pk_seconds_to_ms(70, &ms) && ms == 65000);
+    CHECK(!pk_seconds_to_ms(4000, &ms) && ms == 65000);
+    CHECK(!pk_seconds_to_ms(4, NULL));
+}
+
+/* Vào lại STOP rồi đỗ tiếp không được dùng bộ định thời rời xe của lượt trước. */
+static void test_repark_resets_away_timer(void)
+{
+    pk_fsm_t f; pk_settings_t s;
+    pk_settings_default(&s);
+    pk_fsm_init(&f, 0);
+    pk_fsm_on_ir(&f, true, 0, &s);
+    pk_fsm_on_ir(&f, false, 100, &s);
+    uint32_t t = feed(&f, &s, 100, 28, 80, 60);
+    CHECK(f.state == PK_PARKED);
+    t = feed(&f, &s, t, 150, 12, 60);
+    CHECK(f.state == PK_LEAVING);
+    t = feed(&f, &s, t, 28, 1, 60);
+    CHECK(f.state == PK_STOP);
+    t = feed(&f, &s, t, 28, 80, 60);
+    CHECK(f.state == PK_PARKED);
+    t = feed(&f, &s, t, DIST_NONE, 5, 60);
+    CHECK(f.state == PK_PARKED);
+    t = feed(&f, &s, t, DIST_NONE, 6, 60);
+    CHECK(f.state == PK_LEAVING);
+    (void)t;
+}
+
 /* ======================= parking_view (Người 2) ======================= */
 static int lit(const uint8_t *rows, int n)
 {
@@ -504,6 +562,9 @@ int main(void)
     test_false_alarm();
     test_lifted_away();
     test_repark();
+    test_stop_requires_continuous_hold();
+    test_settings_seconds_conversion();
+    test_repark_resets_away_timer();
     test_view_small();
     test_view_wide();
     test_beep();

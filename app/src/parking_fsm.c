@@ -4,6 +4,7 @@
  * @owner   Người 3 (Điều khiển + giám sát hệ thống)
  */
 #include "parking_fsm.h"
+#include <stddef.h>
 
 void pk_settings_default(pk_settings_t *s)
 {
@@ -25,6 +26,15 @@ bool pk_settings_valid(const pk_settings_t *s)
            s->intensity_day <= PK_INTENSITY_MAX && s->intensity_night <= PK_INTENSITY_MAX;
 }
 
+bool pk_seconds_to_ms(uint16_t seconds, uint16_t *out_ms)
+{
+    if (out_ms == NULL || seconds > (UINT16_MAX / 1000U)) {
+        return false;
+    }
+    *out_ms = (uint16_t)((uint32_t)seconds * 1000U);
+    return true;
+}
+
 void pk_fsm_init(pk_fsm_t *f, uint32_t now_ms)
 {
     f->state           = PK_EMPTY;
@@ -32,6 +42,8 @@ void pk_fsm_init(pk_fsm_t *f, uint32_t now_ms)
     f->ir              = false;
     f->ir_off_since_ms = now_ms;
     f->ir_seen         = false;
+    f->hold_active     = false;
+    f->hold_since_ms   = now_ms;
     f->away            = false;
     f->away_since_ms   = now_ms;
     f->dist_mm         = DIST_NONE;
@@ -65,8 +77,15 @@ static bool go(pk_fsm_t *f, pk_state_t next, uint32_t now_ms)
     if (f->state == next) {
         return false;
     }
+    if (next == PK_STOP) {
+        f->hold_active = true;
+        f->hold_since_ms = now_ms;
+    } else {
+        f->hold_active = false;
+    }
     if (next == PK_PARKED) {
         f->park_count++;
+        f->away = false; /* một lượt đỗ mới phải xác nhận rời đi lại từ đầu */
     }
     if (next == PK_EMPTY && f->state == PK_LEAVING) {
         f->leave_count++;
@@ -100,7 +119,14 @@ bool pk_fsm_on_distance(pk_fsm_t *f, uint16_t d, uint32_t now_ms, const pk_setti
 
     case PK_STOP:
         if (d != DIST_NONE && d > s->stop_mm + PK_HYST_MM) { return go(f, PK_APPROACH, now_ms); }
-        if (at_stop && (now_ms - f->state_since_ms) >= s->park_hold_ms) {
+        /* Cần ở <= stop LIÊN TỤC đủ hold_ms. Mất Echo hoặc nhích ra ngoài
+         * vạch dừng phải tính lại, dù vẫn ở PK_STOP vì vùng trễ 2 cm. */
+        if (!at_stop) {
+            f->hold_active = false;
+        } else if (!f->hold_active) {
+            f->hold_active = true;
+            f->hold_since_ms = now_ms;
+        } else if ((now_ms - f->hold_since_ms) >= s->park_hold_ms) {
             return go(f, PK_PARKED, now_ms);
         }
         break;
@@ -165,5 +191,5 @@ bool pk_fsm_on_ir(pk_fsm_t *f, bool detected, uint32_t now_ms, const pk_settings
 const char *pk_state_name(pk_state_t st)
 {
     static const char *const names[PK_STATE_COUNT] = { "TRONG", "XE VAO", "DUNG", "DA DO", "XE RA" };
-    return (st < PK_STATE_COUNT) ? names[st] : "?";
+    return ((unsigned)st < PK_STATE_COUNT) ? names[st] : "?";
 }

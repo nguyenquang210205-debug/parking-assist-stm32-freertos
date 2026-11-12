@@ -62,8 +62,10 @@ static bool parse_uint(const char *s, uint32_t *out)
     uint32_t v = 0;
     while (*s != '\0') {
         if (*s < '0' || *s > '9') { return false; }
-        v = v * 10U + (uint32_t)(*s++ - '0');
-        if (v > 60000U) { return false; }
+        uint32_t digit = (uint32_t)(*s++ - '0');
+        /* Kiem tra TRUOC phep nhan de chuoi so dai khong tran uint32_t. */
+        if (v > (60000U - digit) / 10U) { return false; }
+        v = v * 10U + digit;
     }
     *out = v;
     return true;
@@ -134,7 +136,9 @@ static void cmd_set(char *args)
     for (uint8_t id = 0; id < SET_COUNT; id++) {
         if (strcmp(args, names[id]) == 0) {
             /* ControlTask tự kiểm tra tính hợp lệ của cả bộ tham số */
-            (void)app_post_event(EV_CMD_SET, id, (uint16_t)v, pdMS_TO_TICKS(50));
+            if (!app_post_event(EV_CMD_SET, id, (uint16_t)v, pdMS_TO_TICKS(50))) {
+                log_printf("[CMD] Queue day, khong gui duoc lenh set");
+            }
             return;
         }
     }
@@ -175,7 +179,11 @@ static void handle_line(char *line)
     else if (strcmp(line, "status") == 0) { cmd_status(); }
     else if (strcmp(line, "sonar") == 0)  { cmd_sonar(); }
     else if (strcmp(line, "set") == 0)    { cmd_set(arg); }
-    else if (strcmp(line, "reset") == 0)  { (void)app_post_event(EV_CMD_RESET, 0, 0, pdMS_TO_TICKS(50)); }
+    else if (strcmp(line, "reset") == 0)  {
+        if (!app_post_event(EV_CMD_RESET, 0, 0, pdMS_TO_TICKS(50))) {
+            log_printf("[CMD] Queue day, khong gui duoc lenh reset");
+        }
+    }
     else if (strcmp(line, "beep") == 0 && has_num && v <= 1U) {
         if (v == 1U) { (void)xEventGroupSetBits(g_egSystem, EVT_BEEP_TEST); }
         else         { (void)xEventGroupClearBits(g_egSystem, EVT_BEEP_TEST); }
